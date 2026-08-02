@@ -10,7 +10,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Plus, Search, Home, Calendar, Settings, LogOut, Users, Copy, Wallet } from "lucide-react"
+import { Plus, Search, Home, Calendar, Settings, LogOut, Users, Copy, Wallet, Download } from "lucide-react"
 import { ExpenseDashboard } from "@/components/expense-dashboard"
 import { ExpenseCard } from "@/components/expense-card"
 import { ExpenseForm } from "@/components/expense-form"
@@ -20,6 +20,7 @@ import { InstallPWA } from "@/components/install-pwa"
 import { HouseholdSetup } from "@/components/household-setup"
 import { LoadingScreen } from "@/components/loading-screen"
 import { ExpenseDetail } from "@/components/expense-detail"
+import { ExportExpenses } from "@/components/export-expenses"
 import type { Expense, ExpenseInput } from "@/lib/database"
 import { useToast } from "@/hooks/use-toast"
 
@@ -102,6 +103,7 @@ export default function ExpenseTracker() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isExportOpen, setIsExportOpen] = useState(false)
   const [householdInfo, setHouseholdInfo] = useState<any>(null)
   const { toast } = useToast()
 
@@ -501,15 +503,28 @@ export default function ExpenseTracker() {
                 </div>
               </div>
               {/* Resumen de lo filtrado */}
-              <div className="flex items-center justify-between rounded-2xl border border-slate-700/40 bg-slate-800/30 px-4 py-3">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-700/40 bg-slate-800/30 px-4 py-3">
                 <span className="text-sm text-slate-400">
                   {filteredExpenses.length} {filteredExpenses.length === 1 ? "gasto" : "gastos"}
                 </span>
-                <span className="text-base font-bold text-white">
-                  {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(
-                    filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
-                  )}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-base font-bold text-white">
+                    {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(
+                      filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
+                    )}
+                  </span>
+                  <Button
+                    onClick={() => setIsExportOpen(true)}
+                    disabled={filteredExpenses.length === 0}
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1.5 rounded-lg border-slate-600 bg-slate-800 px-3 text-xs text-slate-200 hover:bg-slate-700 hover:text-white"
+                    title="Exportar los gastos filtrados"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Exportar
+                  </Button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -592,6 +607,20 @@ export default function ExpenseTracker() {
             </div>
           )}
         </div>
+
+        {/* Exportar gastos filtrados */}
+        <ExportExpenses
+          open={isExportOpen}
+          onOpenChange={setIsExportOpen}
+          expenses={filteredExpenses}
+          filters={{
+            year: selectedYear,
+            month: selectedMonth,
+            category: filterCategory,
+            status: filterStatus,
+            search: searchTerm,
+          }}
+        />
 
         {/* Notification settings dialog */}
         <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
