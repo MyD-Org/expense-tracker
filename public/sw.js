@@ -1,5 +1,7 @@
-const CACHE_NAME = 'expense-tracker-v3'
-const ASSETS = ['/manifest.json', '/icon-192.png', '/icon-512.png', '/placeholder-logo.png']
+// Subir la versión al cambiar los íconos: al activarse, el SW borra las cachés
+// viejas y vuelve a bajar los assets (si no, sirve los íconos anteriores).
+const CACHE_NAME = 'expense-tracker-v4'
+const ASSETS = ['/manifest.json', '/icon-192.png', '/icon-512.png']
 
 // Instalar: precachear solo íconos/estáticos y activar de inmediato
 self.addEventListener('install', (event) => {
