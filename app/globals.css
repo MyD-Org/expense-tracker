@@ -251,6 +251,35 @@
   display: none;
 }
 
+/* Scrollbars en tono oscuro: por defecto el navegador los pinta claros y
+   quedaban como una barra blanca sobre los paneles slate (modales, vista
+   previa de exportación, listas largas). Firefox usa scrollbar-color;
+   Chrome/Safari/WebView de Capacitor usan ::-webkit-scrollbar. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(71 85 105 / 0.8) transparent; /* slate-600 sobre track transparente */
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgb(71 85 105 / 0.8); /* slate-600 */
+  border-radius: 9999px;
+  /* El borde transparente adelgaza el pulgar sin achicar el área de agarre */
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(100 116 139 / 0.9); /* slate-500 */
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* ===== Pantalla de carga divertida ===== */
 @keyframes coin-bounce {
   0%, 100% { transform: translateY(0) scale(1); opacity: 1; }
