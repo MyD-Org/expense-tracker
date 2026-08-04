@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   description: "Aplicación para gestionar gastos fijos, variables y tarjetas de crédito",
   generator: "Next.js",
   manifest: "/manifest.json",
-  themeColor: "#10b981",
+  themeColor: "#0f172a",
   viewport: "width=device-width, initial-scale=1, maximum-scale=1",
 }
 
