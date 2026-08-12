@@ -1,200 +1,166 @@
 "use client"
 
-import { useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Pencil, Copy, Check, FileText, ReceiptText, Download, Loader2, CalendarDays, Tag, CircleDot, User, Trash2 } from "lucide-react"
+import {
+  CalendarDays,
+  Tag,
+  ArrowRight,
+  Pencil,
+  Trash2,
+  Layers,
+  CreditCard,
+  DollarSign,
+  TrendingDown,
+} from "lucide-react"
 import type { Expense } from "@/lib/database"
-import { dataUrlToObjectUrl } from "@/lib/data-url"
 
 interface ExpenseDetailProps {
   expense: Expense | undefined
   onClose: () => void
+  onViewFull: (expense: Expense) => void
   onEdit: (expense: Expense) => void
   onDelete: (expense: Expense) => void
 }
 
 const categoryLabels = { fijo: "Gasto fijo", tarjeta: "Tarjeta de crédito", variable: "Gasto variable" } as const
 
-export function ExpenseDetail({ expense, onClose, onEdit, onDelete }: ExpenseDetailProps) {
-  const [copied, setCopied] = useState(false)
-  const [loadingDoc, setLoadingDoc] = useState<"receipt" | "invoice" | null>(null)
-  const [doc, setDoc] = useState<{ data: string; isPdf: boolean; name: string; title: string } | null>(null)
+const categoryMeta = {
+  fijo: { icon: DollarSign, accent: "bg-blue-500/15 text-blue-400" },
+  tarjeta: { icon: CreditCard, accent: "bg-amber-500/15 text-amber-400" },
+  variable: { icon: TrendingDown, accent: "bg-purple-500/15 text-purple-400" },
+} as const
 
+export function ExpenseDetail({ expense, onClose, onViewFull, onEdit, onDelete }: ExpenseDetailProps) {
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(amount)
-  // due_date puede venir como "YYYY-MM-DD" o ISO con hora; parseamos como fecha
-  // LOCAL para evitar el corrimiento UTC → -3h que muestra el día anterior.
+
   const formatDate = (s: string) => {
     const [y, m, d] = s.slice(0, 10).split("-").map(Number)
     return new Date(y, m - 1, d).toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" })
   }
 
-  const viewDoc = async (kind: "receipt" | "invoice") => {
-    if (!expense) return
-    setLoadingDoc(kind)
-    try {
-      const res = await fetch(`/api/expenses/${expense.id}/${kind}`)
-      if (!res.ok) throw new Error()
-      const { data, name } = await res.json()
-      // Blob URL en vez del data URL directo: Chrome deja en blanco los
-      // data: URLs de más de ~2 MB en iframes.
-      const isPdf = data.startsWith("data:application/pdf")
-      const url = dataUrlToObjectUrl(data)
-      setDoc({ data: url, isPdf, name: name || "documento", title: kind === "receipt" ? "Comprobante de pago" : "Factura" })
-    } catch {
-      /* noop */
-    } finally {
-      setLoadingDoc(null)
-    }
-  }
-
-  const closeDoc = () => {
-    if (doc) URL.revokeObjectURL(doc.data)
-    setDoc(null)
-  }
-
-  const docIsPdf = doc?.isPdf
-  const isPaid = expense?.status === "pagado"
-
   return (
-    <>
-      <Dialog open={!!expense} onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className="!w-[calc(100vw-2rem)] !max-w-md !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 border-slate-700 bg-slate-900 p-5 sm:p-6">
-          {expense && (
+    <Dialog open={!!expense} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="!fixed !left-1/2 !top-[50%] !w-[calc(100vw-2rem)] !max-w-sm !-translate-x-1/2 !-translate-y-1/2 gap-0 overflow-hidden border-slate-700 bg-slate-900 p-0 sm:!max-w-sm">
+        {expense && (() => {
+          const meta = categoryMeta[expense.category]
+          const CategoryIcon = meta.icon
+          const isPaid = expense.status === "pagado"
+          const paid = Number(expense.paid_amount) || 0
+          const total = Number(expense.amount) || 0
+          const balance = Math.max(0, total - paid)
+          const isPartial = !isPaid && paid > 0
+          const isStatement = expense.category === "tarjeta" && !!expense.card_id && !!expense.billing_month
+          const itemCount = expense.item_count || 0
+          const itemsTotal = Number(expense.items_total) || 0
+          const unclassified = Math.max(0, total - itemsTotal)
+
+          return (
             <>
-              <DialogHeader>
-                <DialogTitle className="text-white">Detalle del gasto</DialogTitle>
+              <DialogHeader className="border-b border-slate-800 px-4 py-4 sm:px-5">
+                <div className="flex items-start gap-3 pr-6">
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${meta.accent}`}>
+                    <CategoryIcon className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <DialogTitle className="text-left text-base font-semibold leading-snug text-white">
+                      {expense.description}
+                    </DialogTitle>
+                    <p className="mt-0.5 text-xs text-slate-500">{categoryLabels[expense.category]}</p>
+                  </div>
+                </div>
               </DialogHeader>
 
-              {/* Encabezado: monto + estado */}
-              <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-4">
-                <p className="text-sm text-slate-400">{expense.description}</p>
-                <div className="mt-1 flex items-center justify-between">
-                  <span className="text-3xl font-bold text-white">{formatCurrency(expense.amount)}</span>
+              <div className="space-y-4 px-4 py-4 sm:px-5">
+                <div className="flex items-end justify-between gap-3">
+                  <span className="text-3xl font-bold text-white">{formatCurrency(total)}</span>
                   <span
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${
-                      isPaid ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"
+                    className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                      isPaid
+                        ? "bg-emerald-500/15 text-emerald-300"
+                        : isPartial
+                          ? "bg-blue-500/15 text-blue-300"
+                          : "bg-amber-500/15 text-amber-300"
                     }`}
                   >
-                    {isPaid ? "Pagado" : "Pendiente"}
+                    {isPaid ? "Pagado" : isPartial ? "Pago parcial" : "Pendiente"}
                   </span>
                 </div>
-              </div>
 
-              {/* Campos */}
-              <div className="space-y-3 text-sm">
-                <Row icon={<Tag className="h-4 w-4" />} label="Categoría" value={categoryLabels[expense.category]} />
-                <Row icon={<CalendarDays className="h-4 w-4" />} label="Vencimiento" value={formatDate(expense.due_date)} />
-                <Row icon={<CircleDot className="h-4 w-4" />} label="Estado" value={isPaid ? "Pagado" : "Pendiente"} />
-                {expense.added_by_name && (
-                  <Row icon={<User className="h-4 w-4" />} label="Agregado por" value={expense.added_by_name} />
-                )}
-                {expense.notes && (
-                  <div className="rounded-xl border border-slate-700/40 bg-slate-800/40 p-3">
-                    <p className="text-xs text-slate-500">Notas</p>
-                    <p className="mt-0.5 text-slate-200">{expense.notes}</p>
+                {isPartial && (
+                  <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-700/50 bg-slate-800/40 p-3 text-center text-xs">
+                    <div>
+                      <p className="text-slate-500">Pagaste</p>
+                      <p className="font-semibold text-emerald-300">{formatCurrency(paid)}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Saldo</p>
+                      <p className="font-semibold text-amber-300">{formatCurrency(balance)}</p>
+                    </div>
                   </div>
                 )}
-                {expense.payment_code && (
-                  <div className="flex items-center gap-2 rounded-xl border border-slate-700/40 bg-slate-800/40 p-3">
-                    <span className="text-xs text-slate-500">Código:</span>
-                    <code className="flex-1 truncate font-mono text-xs text-blue-300">{expense.payment_code}</code>
-                    <button
-                      onClick={() => { navigator.clipboard.writeText(expense.payment_code!); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-                      className="text-blue-400 hover:text-blue-300"
-                    >
-                      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </button>
-                  </div>
-                )}
-              </div>
 
-              {/* Documentos */}
-              {(expense.has_receipt || expense.has_invoice) && (
-                <div className="flex flex-wrap gap-2">
-                  {expense.has_receipt && (
-                    <button
-                      onClick={() => viewDoc("receipt")}
-                      disabled={loadingDoc !== null}
-                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs font-medium text-blue-300 hover:bg-blue-500/10 disabled:opacity-50"
-                    >
-                      {loadingDoc === "receipt" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-                      {loadingDoc === "receipt" ? "Abriendo..." : "Comprobante"}
-                    </button>
-                  )}
-                  {expense.has_invoice && (
-                    <button
-                      onClick={() => viewDoc("invoice")}
-                      disabled={loadingDoc !== null}
-                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2 text-xs font-medium text-purple-300 hover:bg-purple-500/10 disabled:opacity-50"
-                    >
-                      {loadingDoc === "invoice" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ReceiptText className="h-3.5 w-3.5" />}
-                      {loadingDoc === "invoice" ? "Abriendo..." : "Factura"}
-                    </button>
+                <div className="space-y-2.5 rounded-xl border border-slate-700/40 bg-slate-800/30 p-3 text-sm">
+                  <Row icon={<CalendarDays className="h-3.5 w-3.5" />} label="Vencimiento" value={formatDate(expense.due_date)} />
+                  <Row icon={<Tag className="h-3.5 w-3.5" />} label="Categoría" value={categoryLabels[expense.category]} />
+                  {isStatement && (
+                    <Row
+                      icon={<Layers className="h-3.5 w-3.5" />}
+                      label="Desglose"
+                      value={
+                        itemCount > 0
+                          ? `${itemCount} ${itemCount === 1 ? "item" : "items"}${unclassified > 1 ? ` · ${formatCurrency(unclassified)} sin clasificar` : ""}`
+                          : "Sin items cargados"
+                      }
+                    />
                   )}
                 </div>
-              )}
 
-              {/* Acciones */}
-              <div className="space-y-2">
                 <Button
-                  onClick={() => onEdit(expense)}
-                  className="w-full gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 py-5 font-semibold text-white hover:from-blue-500 hover:to-blue-600"
+                  onClick={() => onViewFull(expense)}
+                  className="h-11 w-full gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 font-semibold text-white hover:from-blue-500 hover:to-blue-600"
                 >
-                  <Pencil className="h-4 w-4" /> Editar gasto
+                  Ver detalle
+                  <ArrowRight className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => onDelete(expense)}
-                  className="w-full gap-2 rounded-xl py-4 font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300"
-                >
-                  <Trash2 className="h-4 w-4" /> Eliminar gasto
-                </Button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => onEdit(expense)}
+                    className="h-10 gap-1.5 rounded-xl border-slate-600 bg-slate-800/60 text-sm text-slate-200 hover:bg-slate-700"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Editar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => onDelete(expense)}
+                    className="h-10 gap-1.5 rounded-xl text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Eliminar
+                  </Button>
+                </div>
               </div>
             </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Visor de documento */}
-      <Dialog open={!!doc} onOpenChange={(open) => !open && closeDoc()}>
-        <DialogContent className="!w-[calc(100vw-2rem)] !max-w-2xl !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 border-slate-700 bg-slate-900 p-4 sm:p-6">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-white">
-              <FileText className="h-5 w-5 text-blue-400" />
-              {doc?.title}
-            </DialogTitle>
-          </DialogHeader>
-          {/* El PDF scrollea dentro de su propio visor; solo las imágenes
-              necesitan scroll del contenedor. Así no hay doble scrollbar. */}
-          <div className={docIsPdf ? "overflow-hidden rounded-xl" : "max-h-[70vh] overflow-auto rounded-xl bg-slate-950/60 p-2"}>
-            {doc && (docIsPdf ? (
-              <iframe src={doc.data} className="block h-[70vh] w-full border-0" title={doc.title} />
-            ) : (
-              <img src={doc.data} alt={doc.title} className="mx-auto h-auto max-w-full rounded-lg" />
-            ))}
-          </div>
-          {doc && (
-            <a
-              href={doc.data}
-              download={doc.name}
-              className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/60 py-2.5 text-sm font-medium text-slate-200 hover:bg-slate-700"
-            >
-              <Download className="h-4 w-4" /> Descargar
-            </a>
-          )}
-        </DialogContent>
-      </Dialog>
-    </>
+          )
+        })()}
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function Row({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="flex items-center gap-2 text-slate-400">{icon} {label}</span>
-      <span className="font-medium text-slate-200">{value}</span>
+    <div className="flex items-start justify-between gap-3">
+      <span className="flex shrink-0 items-center gap-1.5 text-slate-400">
+        {icon} {label}
+      </span>
+      <span className="text-right text-xs font-medium leading-snug text-slate-200 sm:text-sm">{value}</span>
     </div>
   )
 }

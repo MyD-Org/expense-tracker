@@ -1,8 +1,24 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { updateExpense, deleteExpense, type ExpenseInput } from "@/lib/database"
+import { getExpenseById, updateExpense, deleteExpense, type ExpenseInput } from "@/lib/database"
 import { initializeDatabase } from "@/lib/init-database"
+
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+  if (!session.user.householdId) return NextResponse.json({ error: "Sin hogar configurado" }, { status: 403 })
+
+  try {
+    await initializeDatabase()
+    const expense = await getExpenseById(Number.parseInt(params.id), session.user.householdId)
+    if (!expense) return NextResponse.json({ error: "El gasto no existe" }, { status: 404 })
+    return NextResponse.json(expense)
+  } catch (error) {
+    console.error("Error fetching expense:", error)
+    return NextResponse.json({ error: "Failed to fetch expense" }, { status: 500 })
+  }
+}
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)

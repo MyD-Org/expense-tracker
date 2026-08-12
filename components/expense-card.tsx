@@ -54,6 +54,13 @@ export function ExpenseCard({ expense, onStatusChange, onEdit, onDelete, onView 
   }
 
   const isPaid = expense.status === "pagado"
+  const paid = Number(expense.paid_amount) || 0
+  const total = Number(expense.amount) || 0
+  const balance = Math.max(0, total - paid)
+  // "Parcial" es un saldo a medio pagar, no un estado guardado en la base.
+  const isPartial = !isPaid && paid > 0
+  const isStatement = expense.category === "tarjeta" && !!expense.card_id && (expense.item_count || 0) > 0
+  const unclassified = total - (Number(expense.items_total) || 0)
   const meta = categoryMeta[expense.category]
   const CategoryIcon = meta.icon
 
@@ -85,11 +92,15 @@ export function ExpenseCard({ expense, onStatusChange, onEdit, onDelete, onView 
         </div>
         <span
           className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
-            isPaid ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"
+            isPaid
+              ? "bg-emerald-500/15 text-emerald-300"
+              : isPartial
+                ? "bg-blue-500/15 text-blue-300"
+                : "bg-amber-500/15 text-amber-300"
           }`}
         >
           {isPaid ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-          {isPaid ? "Pagado" : "Pendiente"}
+          {isPaid ? "Pagado" : isPartial ? "Parcial" : "Pendiente"}
         </span>
       </div>
 
@@ -102,6 +113,28 @@ export function ExpenseCard({ expense, onStatusChange, onEdit, onDelete, onView 
           {overdue ? `Venció ${formatDate(expense.due_date)}` : `Vence ${formatDate(expense.due_date)}`}
         </span>
       </div>
+
+      {/* Saldo, cuando hay un pago parcial encima */}
+      {isPartial && (
+        <div className="mt-2 flex items-center justify-between text-xs">
+          <span className="text-slate-500">Pagaste {formatCurrency(paid)}</span>
+          <span className="font-semibold text-amber-300">Saldo {formatCurrency(balance)}</span>
+        </div>
+      )}
+
+      {/* Desglose del resumen */}
+      {isStatement && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="rounded-md bg-slate-700/50 px-2 py-0.5 text-slate-300">
+            {expense.item_count} {expense.item_count === 1 ? "item" : "items"}
+          </span>
+          {unclassified > 1 && (
+            <span className="rounded-md bg-slate-800 px-2 py-0.5 text-slate-500">
+              {formatCurrency(unclassified)} sin clasificar
+            </span>
+          )}
+        </div>
+      )}
 
       {expense.added_by_name && (
         <p className="mt-1 text-xs text-slate-500">Agregado por {expense.added_by_name}</p>

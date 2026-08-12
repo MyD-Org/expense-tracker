@@ -95,6 +95,75 @@ async function runInit() {
     await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS invoice_data TEXT`.catch(() => {})
     await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS invoice_name TEXT`.catch(() => {})
 
+    // ── Desglose de tarjetas ──
+    // Un gasto category='tarjeta' es el RESUMEN del mes de una tarjeta: su
+    // `amount` es el total a pagar (lo que dice el banco) y es el único que
+    // se paga. Los expense_items son el desglose analítico que cuelga de él.
+
+    // Pago parcial del resumen: saldo = amount - paid_amount.
+    // `status` sigue siendo la columna de siempre (el cron y las stats la usan);
+    // "parcial" es un estado visual = status 'pendiente' con paid_amount > 0.
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS paid_amount DECIMAL(10,2) NOT NULL DEFAULT 0`.catch(() => {})
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS minimum_due DECIMAL(10,2)`.catch(() => {})
+
+    // Los gastos ya marcados como pagados antes de esta columna quedaron con
+    // paid_amount = 0; los normalizamos una sola vez para que el saldo cierre.
+    await sql`UPDATE expenses SET paid_amount = amount WHERE status = 'pagado' AND paid_amount = 0`.catch(() => {})
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS cards (
+        id SERIAL PRIMARY KEY,
+        household_id INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        last4 TEXT,
+        closing_day INTEGER CHECK (closing_day BETWEEN 1 AND 31),
+        due_day INTEGER CHECK (due_day BETWEEN 1 AND 31),
+        color TEXT,
+        archived BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
+
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS card_id INTEGER REFERENCES cards(id) ON DELETE SET NULL`.catch(() => {})
+    // Mes de resumen del gasto tarjeta (primer día del mes). Junto con card_id
+    // es la clave que lo une con sus items.
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS billing_month DATE`.catch(() => {})
+
+    // El item se ancla a (card_id, billing_month), NO a un expense_id: las
+    // cuotas futuras existen antes que el resumen del mes en que caen. Ese par
+    // es la ÚNICA fuente de verdad del vínculo — no hay FK al resumen que
+    // pueda quedar desincronizada.
+    await sql`
+      CREATE TABLE IF NOT EXISTS expense_items (
+        id SERIAL PRIMARY KEY,
+        household_id INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+        card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+        billing_month DATE NOT NULL,
+        description TEXT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        merchant TEXT,
+        kind TEXT NOT NULL DEFAULT 'variable' CHECK (kind IN ('fijo', 'variable', 'suscripcion', 'financiero')),
+        purchase_date DATE,
+        purchase_group_id TEXT,
+        installment_current INTEGER,
+        installment_total INTEGER,
+        external_ref TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'api')),
+        tag TEXT,
+        added_by TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
+
+    // Idempotencia del ingreso por API: reprocesar el mismo resumen actualiza
+    // en vez de duplicar. Para las cuotas autogeneradas el external_ref sale
+    // determinístico de purchase_group_id + número de cuota.
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_items_dedupe
+      ON expense_items(card_id, billing_month, external_ref)
+    `.catch(() => {})
+
     // push_subscriptions: cada dispositivo/navegador guarda su suscripción
     // Web Push (VAPID) para recibir notificaciones aunque la app esté cerrada.
     await sql`
@@ -130,6 +199,10 @@ async function runInit() {
     await sql`CREATE INDEX IF NOT EXISTS idx_households_invite_code ON households(invite_code)`
     await sql`CREATE INDEX IF NOT EXISTS idx_push_subs_user_id ON push_subscriptions(user_id)`
     await sql`CREATE INDEX IF NOT EXISTS idx_notif_log_user_created ON notification_log(user_id, created_at DESC)`
+    await sql`CREATE INDEX IF NOT EXISTS idx_cards_household ON cards(household_id)`
+    await sql`CREATE INDEX IF NOT EXISTS idx_items_card_month ON expense_items(card_id, billing_month)`
+    await sql`CREATE INDEX IF NOT EXISTS idx_expenses_card_month ON expenses(card_id, billing_month)`
+    await sql`CREATE INDEX IF NOT EXISTS idx_items_group ON expense_items(purchase_group_id)`
 
   } catch (error) {
     console.error("[db] Error initializing database:", error)

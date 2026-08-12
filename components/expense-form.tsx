@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Home, CreditCard, TrendingDown, Repeat, Paperclip, FileText, X, Loader2, ChevronDown } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import type { Expense, ExpenseInput } from "@/lib/database"
+import type { Card } from "@/lib/cards"
 
 const MAX_RECEIPT_MB = 4
 
@@ -18,6 +19,8 @@ interface ExpenseFormProps {
   expense?: Expense
   onSubmit: (expense: ExpenseInput) => void | Promise<void>
   onCancel: () => void
+  onManageCards?: () => void
+  cardsRefreshKey?: number
 }
 
 const categories = [
@@ -26,7 +29,7 @@ const categories = [
   { value: "variable", label: "Variable", icon: TrendingDown, accent: "purple" },
 ] as const
 
-export function ExpenseForm({ expense, onSubmit, onCancel }: ExpenseFormProps) {
+export function ExpenseForm({ expense, onSubmit, onCancel, onManageCards, cardsRefreshKey = 0 }: ExpenseFormProps) {
   const { toast } = useToast()
   const [formData, setFormData] = useState({
     description: expense?.description || "",
@@ -38,6 +41,32 @@ export function ExpenseForm({ expense, onSubmit, onCancel }: ExpenseFormProps) {
     propagation_months: "12" as string,
     payment_code: expense?.payment_code || "",
   })
+
+  // Tarjeta: un gasto "tarjeta" es el resumen de una tarjeta en un mes.
+  // Ese par (tarjeta, mes) es lo que engancha el resumen con sus items.
+  const [cards, setCards] = useState<Card[]>([])
+  const [cardId, setCardId] = useState<string>(expense?.card_id ? String(expense.card_id) : "")
+  const [billingMonth, setBillingMonth] = useState<string>(
+    expense?.billing_month ? expense.billing_month.slice(0, 7) : "",
+  )
+  const [minimumDue, setMinimumDue] = useState<string>(
+    expense?.minimum_due != null ? String(expense.minimum_due) : "",
+  )
+
+  useEffect(() => {
+    if (formData.category !== "tarjeta") return
+    fetch("/api/cards")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setCards)
+      .catch(() => {})
+  }, [formData.category, cardsRefreshKey])
+
+  // El mes de resumen por defecto es el del vencimiento cargado.
+  useEffect(() => {
+    if (formData.category === "tarjeta" && !billingMonth && formData.due_date) {
+      setBillingMonth(formData.due_date.slice(0, 7))
+    }
+  }, [formData.category, formData.due_date])
 
   // Adjuntos: comprobante de pago y factura
   const [receipt, setReceipt] = useState<{ data: string | null; name: string | null }>({ data: null, name: null })
@@ -62,6 +91,13 @@ export function ExpenseForm({ expense, onSubmit, onCancel }: ExpenseFormProps) {
       due_date: formData.due_date,
       notes: formData.notes || undefined,
       payment_code: formData.payment_code || undefined,
+    }
+
+    if (formData.category === "tarjeta") {
+      if (cardId) expenseData.card_id = Number.parseInt(cardId)
+      // El mes se guarda como el día 1: es la clave que une resumen e items.
+      if (billingMonth) expenseData.billing_month = `${billingMonth}-01`
+      if (minimumDue) expenseData.minimum_due = Number.parseFloat(minimumDue)
     }
 
     // Solo enviar adjuntos si se eligió uno nuevo
@@ -153,6 +189,82 @@ export function ExpenseForm({ expense, onSubmit, onCancel }: ExpenseFormProps) {
         </div>
       </div>
 
+      {/* Tarjeta y mes de resumen (solo category='tarjeta') */}
+      {formData.category === "tarjeta" && (
+        <div className="space-y-3 rounded-xl border border-amber-500/20 bg-amber-950/10 p-4">
+          <div className="flex items-center gap-2 text-slate-300">
+            <CreditCard className="h-4 w-4 text-amber-400" />
+            <span className="text-sm font-medium">Resumen de tarjeta</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs text-slate-400">Tarjeta</Label>
+                {onManageCards && (
+                  <button
+                    type="button"
+                    onClick={onManageCards}
+                    className="text-[11px] text-amber-400 hover:text-amber-300"
+                  >
+                    Gestionar →
+                  </button>
+                )}
+              </div>
+              <Select value={cardId} onValueChange={setCardId}>
+                <SelectTrigger className={`${inputCls} w-full`}>
+                  <SelectValue placeholder={cards.length ? "Elegir" : "Sin tarjetas"} />
+                </SelectTrigger>
+                <SelectContent className="border-slate-600 bg-slate-800">
+                  {cards.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)} className="text-white hover:bg-slate-700">
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {cards.length === 0 && onManageCards && (
+                <p className="text-[11px] text-slate-500">
+                  Primero cargá tus tarjetas en{" "}
+                  <button type="button" onClick={onManageCards} className="text-amber-400 hover:text-amber-300">
+                    Mis tarjetas
+                  </button>
+                  .
+                </p>
+              )}
+            </div>
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="billingMonth" className="text-xs text-slate-400">Mes del resumen</Label>
+              <Input
+                id="billingMonth"
+                type="month"
+                value={billingMonth}
+                onChange={(e) => setBillingMonth(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="minimumDue" className="text-xs text-slate-400">Pago mínimo (opcional)</Label>
+            <Input
+              id="minimumDue"
+              type="number"
+              step="0.01"
+              value={minimumDue}
+              onChange={(e) => setMinimumDue(e.target.value)}
+              placeholder="0"
+              className={inputCls}
+            />
+          </div>
+
+          <p className="text-xs text-slate-500">
+            El monto de arriba es el <strong className="text-slate-400">total a pagar</strong> del resumen. El desglose
+            item por item se carga desde el detalle, una vez guardado.
+          </p>
+        </div>
+      )}
+
       {/* Propagación (solo gasto fijo nuevo) */}
       {formData.category === "fijo" && !expense && (
         <div className="space-y-3 rounded-xl border border-slate-700 bg-slate-800/40 p-4">
@@ -204,7 +316,9 @@ export function ExpenseForm({ expense, onSubmit, onCancel }: ExpenseFormProps) {
           </Select>
         </div>
         <div className="min-w-0 space-y-1.5">
-          <Label htmlFor="dueDate" className="text-sm text-slate-300">Vencimiento</Label>
+          <Label htmlFor="dueDate" className="text-sm text-slate-300">
+            {formData.category === "tarjeta" ? "Vencimiento del resumen" : "Vencimiento"}
+          </Label>
           <Input
             id="dueDate"
             type="date"
