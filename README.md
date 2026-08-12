@@ -80,6 +80,45 @@ Visita [http://localhost:3000](http://localhost:3000)
 - Estados (pagado/pendiente)
 - Notas y códigos de pago
 
+### Desglose de tarjetas
+Un gasto de categoría `tarjeta` es el **resumen** del mes de una tarjeta: su `amount`
+es el total a pagar y es lo único que cuenta como egreso. El desglose son
+`expense_items` anclados a `(card_id, billing_month)` — ese par, y no una FK al
+resumen, es lo que los une, porque las cuotas futuras existen antes que el
+resumen del mes en que caen.
+
+- **Sin clasificar** = total del resumen − suma de items. Nunca se calcula lo que
+  hay que pagar sumando items: impuestos y sellados nunca se cargan a mano.
+- **Cuotas**: una compra en N cuotas genera N items en meses consecutivos, unidos
+  por `purchase_group_id`. El dashboard muestra lo comprometido a futuro.
+- **Pago parcial**: `paid_amount` sobre el resumen; `saldo = amount - paid_amount`.
+  El estado es derivado — "parcial" es `status='pendiente'` con `paid_amount > 0`.
+
+#### Ingreso automático de resúmenes
+
+`POST /api/statements` con `Authorization: Bearer $EXPENSE_INGEST_TOKEN`.
+Idempotente por `(card_id, billing_month, external_ref)`: reprocesar el mismo
+resumen actualiza las líneas en vez de duplicarlas.
+
+```json
+{
+  "card": "Visa Galicia",
+  "billing_month": "2026-08",
+  "total": 482350.55,
+  "minimum_due": 96470.11,
+  "items": [
+    { "description": "Spotify", "amount": 3499, "kind": "suscripcion" },
+    { "description": "Coto", "amount": 45200, "purchase_date": "2026-08-03" },
+    { "description": "Notebook", "amount": 91000,
+      "installment_current": 3, "installment_total": 12, "external_ref": "TXN-88213" }
+  ]
+}
+```
+
+`kind`: `fijo` · `variable` · `suscripcion` · `financiero` (intereses y refinanciación).
+Si la tarjeta no existe, se crea por nombre. Si el resumen del mes no existe, se
+crea con el vencimiento derivado del día de pago de la tarjeta.
+
 ### Filtros
 - Por año y mes
 - Por categoría

@@ -1,4 +1,5 @@
 import type { Expense } from "@/lib/database"
+import type { ExpenseItem } from "@/lib/expense-items"
 
 // Filtros activos en la vista de Gastos al momento de exportar.
 export interface ExportFilters {
@@ -54,7 +55,11 @@ export function describePeriod(filters: ExportFilters): string {
  * un resumen agregado y una descripción del esquema, para que un agente de IA
  * pueda interpretar los datos sin contexto adicional.
  */
-export function buildExportPayload(expenses: Expense[], filters: ExportFilters) {
+export function buildExportPayload(
+  expenses: Expense[],
+  filters: ExportFilters,
+  itemsByExpenseId?: Record<number, ExpenseItem[]>,
+) {
   const now = new Date()
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -84,6 +89,12 @@ export function buildExportPayload(expenses: Expense[], filters: ExportFilters) 
       estado: "pagado | pendiente",
       vencimiento: "fecha límite de pago, formato YYYY-MM-DD",
       nota: "Los montos ya están en unidades de moneda (no en centavos).",
+      pagado_y_saldo: "pagado = cuánto se pagó del monto; saldo = lo que falta. Un gasto con pagado > 0 y saldo > 0 es un pago parcial.",
+      items:
+        "Solo en gastos de categoría 'tarjeta': el desglose del resumen. El monto del gasto es el TOTAL a pagar y es el único que cuenta como egreso; los items explican en qué se fue ese total, NO se suman aparte.",
+      items_sin_clasificar:
+        "monto del resumen que no está cubierto por items (impuestos, sellados, consumos no cargados). monto − suma de items.",
+      tipo_de_item: "fijo = recurrente · variable = ocasional · suscripcion = servicio mensual · financiero = intereses y refinanciación",
     },
     exportacion: {
       generado_el: now.toISOString(),
@@ -124,12 +135,35 @@ export function buildExportPayload(expenses: Expense[], filters: ExportFilters) 
       tiene_comprobante: Boolean(e.has_receipt),
       tiene_factura: Boolean(e.has_invoice),
       creado_el: e.created_at,
+      pagado: Number(e.paid_amount) || 0,
+      saldo: round2(amountOf(e) - (Number(e.paid_amount) || 0)),
+      pago_minimo: e.minimum_due != null ? Number(e.minimum_due) : null,
+      // Desglose del resumen de tarjeta. El total del gasto sigue siendo el
+      // número a pagar; estos items son en qué se fue ese total.
+      items: (itemsByExpenseId?.[e.id] || []).map((i) => ({
+        descripcion: i.description,
+        monto: Number(i.amount) || 0,
+        tipo: i.kind,
+        comercio: i.merchant || null,
+        fecha_de_compra: i.purchase_date || null,
+        cuota: i.installment_total ? `${i.installment_current}/${i.installment_total}` : null,
+        etiqueta: i.tag || null,
+      })),
+      items_sin_clasificar: itemsByExpenseId?.[e.id]
+        ? round2(
+            amountOf(e) - itemsByExpenseId[e.id].reduce((acc, i) => acc + (Number(i.amount) || 0), 0),
+          )
+        : null,
     })),
   }
 }
 
-export function toJSON(expenses: Expense[], filters: ExportFilters): string {
-  return JSON.stringify(buildExportPayload(expenses, filters), null, 2)
+export function toJSON(
+  expenses: Expense[],
+  filters: ExportFilters,
+  itemsByExpenseId?: Record<number, ExpenseItem[]>,
+): string {
+  return JSON.stringify(buildExportPayload(expenses, filters, itemsByExpenseId), null, 2)
 }
 
 const CSV_COLUMNS = [

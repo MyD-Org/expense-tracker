@@ -10,7 +10,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Plus, Search, Home, Calendar, Settings, LogOut, Users, Copy, Wallet, Download } from "lucide-react"
+import { Plus, Search, Home, Calendar, Settings, LogOut, Users, Copy, Wallet, Download, CreditCard } from "lucide-react"
 import { ExpenseDashboard } from "@/components/expense-dashboard"
 import { ExpenseCard } from "@/components/expense-card"
 import { ExpenseForm } from "@/components/expense-form"
@@ -19,8 +19,9 @@ import { NotificationBell } from "@/components/notification-bell"
 import { InstallPWA } from "@/components/install-pwa"
 import { HouseholdSetup } from "@/components/household-setup"
 import { LoadingScreen } from "@/components/loading-screen"
-import { ExpenseDetail } from "@/components/expense-detail"
 import { ExportExpenses } from "@/components/export-expenses"
+import { CardSettings } from "@/components/card-settings"
+import { ExpenseDetail } from "@/components/expense-detail"
 import type { Expense, ExpenseInput } from "@/lib/database"
 import { useToast } from "@/hooks/use-toast"
 
@@ -73,8 +74,21 @@ export default function ExpenseTracker() {
   const [selectedMonth, setSelectedMonth] = useState<string>((new Date().getMonth() + 1).toString().padStart(2, "0"))
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | undefined>()
-  const [viewingExpense, setViewingExpense] = useState<Expense | undefined>()
+  // El detalle se sigue por id, no por copia: así un pago o un item nuevo se
+  // reflejan al recargar la lista en vez de quedar mostrando datos viejos.
   const [activeTab, setActiveTab] = useState<"dashboard" | "gastos" | "vencimientos">("dashboard")
+  const [previewExpenseId, setPreviewExpenseId] = useState<number | null>(null)
+  const previewExpense = useMemo(
+    () => (previewExpenseId == null ? undefined : expenses.find((e) => e.id === previewExpenseId)),
+    [expenses, previewExpenseId],
+  )
+
+  const openExpensePreview = (expense: Expense) => setPreviewExpenseId(expense.id)
+
+  const goToFullDetail = (expense: Expense) => {
+    setPreviewExpenseId(null)
+    router.push(`/expenses/${expense.id}`)
+  }
 
   // Navegar a la lista unificada de gastos con una categoría preseleccionada
   const goToCategory = (category: string) => {
@@ -103,6 +117,8 @@ export default function ExpenseTracker() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isCardsOpen, setIsCardsOpen] = useState(false)
+  const [cardsRefreshKey, setCardsRefreshKey] = useState(0)
   const [isExportOpen, setIsExportOpen] = useState(false)
   const [householdInfo, setHouseholdInfo] = useState<any>(null)
   const { toast } = useToast()
@@ -219,7 +235,6 @@ export default function ExpenseTracker() {
     // Actualización optimista: cambiamos la UI al instante
     const previous = expenses
     setExpenses((prev) => prev.map((e) => (e.id === id ? { ...e, status } : e)))
-    setViewingExpense((v) => (v && v.id === id ? { ...v, status } : v))
     try {
       const response = await fetch(`/api/expenses/${id}`, {
         method: "PUT",
@@ -243,6 +258,13 @@ export default function ExpenseTracker() {
   const handleCloseForm = () => {
     setIsFormOpen(false)
     setEditingExpense(undefined)
+  }
+
+  const openCardSettings = () => setIsCardsOpen(true)
+
+  const handleCardsOpenChange = (open: boolean) => {
+    setIsCardsOpen(open)
+    if (!open) setCardsRefreshKey((k) => k + 1)
   }
 
   const handleDeleteClick = (id: number) => {
@@ -361,6 +383,10 @@ export default function ExpenseTracker() {
                   <Settings className="mr-2 h-4 w-4" />
                   Notificaciones
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={openCardSettings} className="cursor-pointer hover:bg-slate-700 focus:bg-slate-700">
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  Mis tarjetas
+                </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-slate-600" />
                 <DropdownMenuItem
                   onClick={() => signOut({ callbackUrl: "/login" })}
@@ -383,12 +409,13 @@ export default function ExpenseTracker() {
             Nuevo Gasto
           </Button>
 
-          {/* Modal de solo lectura */}
+          {/* Mini modal de vista previa */}
           <ExpenseDetail
-            expense={viewingExpense}
-            onClose={() => setViewingExpense(undefined)}
-            onEdit={(exp) => { setViewingExpense(undefined); handleEditClick(exp) }}
-            onDelete={(exp) => { setViewingExpense(undefined); handleDeleteClick(exp.id) }}
+            expense={previewExpense}
+            onClose={() => setPreviewExpenseId(null)}
+            onViewFull={goToFullDetail}
+            onEdit={(exp) => { setPreviewExpenseId(null); handleEditClick(exp) }}
+            onDelete={(exp) => { setPreviewExpenseId(null); handleDeleteClick(exp.id) }}
           />
 
           {/* Modal del formulario (controlado) */}
@@ -401,6 +428,8 @@ export default function ExpenseTracker() {
                 expense={editingExpense}
                 onSubmit={editingExpense ? handleEditExpense : handleAddExpense}
                 onCancel={handleCloseForm}
+                onManageCards={openCardSettings}
+                cardsRefreshKey={cardsRefreshKey}
               />
             </DialogContent>
           </Dialog>
@@ -411,7 +440,7 @@ export default function ExpenseTracker() {
             <ExpenseDashboard
               expenses={expenses}
               stats={stats}
-              onExpenseClick={setViewingExpense}
+              onExpenseClick={openExpensePreview}
               onNavigateCategory={goToCategory}
               selectedMonth={selectedMonth}
               selectedYear={selectedYear}
@@ -535,7 +564,7 @@ export default function ExpenseTracker() {
                     onStatusChange={handleStatusChange}
                     onEdit={handleEditClick}
                     onDelete={handleDeleteClick}
-                    onView={setViewingExpense}
+                    onView={openExpensePreview}
                   />
                 ))}
                 {filteredExpenses.length === 0 && (
@@ -589,7 +618,7 @@ export default function ExpenseTracker() {
                             onStatusChange={handleStatusChange}
                             onEdit={handleEditClick}
                             onDelete={handleDeleteClick}
-                            onView={setViewingExpense}
+                            onView={openExpensePreview}
                           />
                         ))}
                       </div>
@@ -621,6 +650,19 @@ export default function ExpenseTracker() {
             search: searchTerm,
           }}
         />
+
+        {/* Card settings dialog */}
+        <Dialog open={isCardsOpen} onOpenChange={handleCardsOpenChange}>
+          <DialogContent className="!w-[calc(100vw-2rem)] !max-w-md !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 bg-slate-900 border-slate-700 p-4 sm:p-6">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-white card-title">
+                <CreditCard className="h-5 w-5 text-amber-400" />
+                Mis tarjetas
+              </DialogTitle>
+            </DialogHeader>
+            <CardSettings onChanged={() => setCardsRefreshKey((k) => k + 1)} />
+          </DialogContent>
+        </Dialog>
 
         {/* Notification settings dialog */}
         <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>

@@ -1,11 +1,12 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Check, Copy, Download, FileJson, FileSpreadsheet, Share2, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import type { Expense } from "@/lib/database"
+import type { ExpenseItem } from "@/lib/expense-items"
 import {
   buildFileName,
   buildPrompt,
@@ -53,9 +54,37 @@ export function ExportExpenses({ open, onOpenChange, expenses, filters }: Export
   const [copied, setCopied] = useState<"data" | "prompt" | null>(null)
   const { toast } = useToast()
 
+  // El desglose de los resúmenes de tarjeta vive en otra tabla; lo traemos al
+  // abrir el diálogo para que el JSON salga completo. Suelen ser 1 o 2 resúmenes
+  // por período, así que son pocos pedidos.
+  const [itemsByExpense, setItemsByExpense] = useState<Record<number, ExpenseItem[]>>({})
+
+  useEffect(() => {
+    if (!open) return
+    const statements = expenses.filter((e) => e.category === "tarjeta" && e.card_id && (e.item_count || 0) > 0)
+    if (!statements.length) {
+      setItemsByExpense({})
+      return
+    }
+    let cancelled = false
+    Promise.all(
+      statements.map((e) =>
+        fetch(`/api/expenses/${e.id}/items`)
+          .then((r) => (r.ok ? r.json() : { items: [] }))
+          .then((d) => [e.id, d.items as ExpenseItem[]] as const)
+          .catch(() => [e.id, [] as ExpenseItem[]] as const),
+      ),
+    ).then((entries) => {
+      if (!cancelled) setItemsByExpense(Object.fromEntries(entries))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, expenses])
+
   const content = useMemo(
-    () => (format === "json" ? toJSON(expenses, filters) : toCSV(expenses)),
-    [format, expenses, filters],
+    () => (format === "json" ? toJSON(expenses, filters, itemsByExpense) : toCSV(expenses)),
+    [format, expenses, filters, itemsByExpense],
   )
   const fileName = buildFileName(filters, format)
   const prompt = buildPrompt(filters)

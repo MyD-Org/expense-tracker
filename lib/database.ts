@@ -20,6 +20,15 @@ export interface Expense {
   invoice_data?: string
   invoice_name?: string
   has_invoice?: boolean
+  /** Solo para category='tarjeta': tarjeta y mes de resumen. */
+  card_id?: number | null
+  billing_month?: string | null
+  /** Cuánto se pagó del total. saldo = amount - paid_amount. */
+  paid_amount: number
+  minimum_due?: number | null
+  /** Solo en los listados: cuántos items tiene el resumen y cuánto suman. */
+  item_count?: number
+  items_total?: number
   created_at: string
   updated_at: string
 }
@@ -32,6 +41,9 @@ export interface ExpenseInput {
   due_date: string
   notes?: string
   propagation_months?: number | "indefinido"
+  card_id?: number | null
+  billing_month?: string | null
+  minimum_due?: number | null
   payment_code?: string
   receipt_data?: string | null
   receipt_name?: string | null
@@ -43,7 +55,10 @@ export async function getExpenses(householdId: number, year?: string, month?: st
   let rows: Record<string, any>[]
   if (year && month && month !== "all") {
     rows = await sql`
-      SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.created_at, e.updated_at, u.name as added_by_name
+      SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.card_id, TO_CHAR(e.billing_month, 'YYYY-MM-DD') AS billing_month, e.paid_amount, e.minimum_due,
+      (SELECT COUNT(*)::int FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS item_count,
+      (SELECT COALESCE(SUM(i.amount), 0)::float8 FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS items_total,
+      e.created_at, e.updated_at, u.name as added_by_name
       FROM expenses e
       LEFT JOIN app_users u ON u.id = e.added_by
       WHERE e.household_id = ${householdId}
@@ -53,7 +68,10 @@ export async function getExpenses(householdId: number, year?: string, month?: st
     `
   } else if (year) {
     rows = await sql`
-      SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.created_at, e.updated_at, u.name as added_by_name
+      SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.card_id, TO_CHAR(e.billing_month, 'YYYY-MM-DD') AS billing_month, e.paid_amount, e.minimum_due,
+      (SELECT COUNT(*)::int FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS item_count,
+      (SELECT COALESCE(SUM(i.amount), 0)::float8 FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS items_total,
+      e.created_at, e.updated_at, u.name as added_by_name
       FROM expenses e
       LEFT JOIN app_users u ON u.id = e.added_by
       WHERE e.household_id = ${householdId}
@@ -62,7 +80,10 @@ export async function getExpenses(householdId: number, year?: string, month?: st
     `
   } else {
     rows = await sql`
-      SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.created_at, e.updated_at, u.name as added_by_name
+      SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.card_id, TO_CHAR(e.billing_month, 'YYYY-MM-DD') AS billing_month, e.paid_amount, e.minimum_due,
+      (SELECT COUNT(*)::int FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS item_count,
+      (SELECT COALESCE(SUM(i.amount), 0)::float8 FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS items_total,
+      e.created_at, e.updated_at, u.name as added_by_name
       FROM expenses e
       LEFT JOIN app_users u ON u.id = e.added_by
       WHERE e.household_id = ${householdId}
@@ -74,9 +95,9 @@ export async function getExpenses(householdId: number, year?: string, month?: st
 
 export async function createExpense(householdId: number, addedBy: string, expense: ExpenseInput): Promise<Expense> {
   const [newExpense] = await sql`
-    INSERT INTO expenses (household_id, added_by, description, amount, category, status, due_date, notes, payment_code, receipt_data, receipt_name, invoice_data, invoice_name)
-    VALUES (${householdId}, ${addedBy}, ${expense.description}, ${expense.amount}, ${expense.category}, ${expense.status}, ${expense.due_date}, ${expense.notes || null}, ${expense.payment_code || null}, ${expense.receipt_data || null}, ${expense.receipt_name || null}, ${expense.invoice_data || null}, ${expense.invoice_name || null})
-    RETURNING id, household_id, added_by, description, amount, category, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date, notes, payment_code, receipt_name, (receipt_data IS NOT NULL) AS has_receipt, invoice_name, (invoice_data IS NOT NULL) AS has_invoice, created_at, updated_at
+    INSERT INTO expenses (household_id, added_by, description, amount, category, status, due_date, notes, payment_code, receipt_data, receipt_name, invoice_data, invoice_name, card_id, billing_month, minimum_due, paid_amount)
+    VALUES (${householdId}, ${addedBy}, ${expense.description}, ${expense.amount}, ${expense.category}, ${expense.status}, ${expense.due_date}, ${expense.notes || null}, ${expense.payment_code || null}, ${expense.receipt_data || null}, ${expense.receipt_name || null}, ${expense.invoice_data || null}, ${expense.invoice_name || null}, ${expense.card_id ?? null}, ${expense.billing_month ?? null}, ${expense.minimum_due ?? null}, ${expense.status === "pagado" ? expense.amount : 0})
+    RETURNING id, household_id, added_by, description, amount, category, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date, notes, payment_code, receipt_name, (receipt_data IS NOT NULL) AS has_receipt, invoice_name, (invoice_data IS NOT NULL) AS has_invoice, card_id, TO_CHAR(billing_month, 'YYYY-MM-DD') AS billing_month, paid_amount, minimum_due, created_at, updated_at
   `
 
   if (expense.category === "fijo" && expense.propagation_months) {
@@ -143,11 +164,129 @@ export async function updateExpense(id: number, householdId: number, expense: Pa
       receipt_name = COALESCE(${expense.receipt_name ?? null}, receipt_name),
       invoice_data = COALESCE(${expense.invoice_data ?? null}, invoice_data),
       invoice_name = COALESCE(${expense.invoice_name ?? null}, invoice_name),
+      card_id = COALESCE(${expense.card_id ?? null}, card_id),
+      billing_month = COALESCE(${expense.billing_month ?? null}, billing_month),
+      minimum_due = COALESCE(${expense.minimum_due ?? null}, minimum_due),
+      -- El toggle pagado/pendiente tiene que mover el saldo con él, o un
+      -- resumen "pagado" quedaría mostrando saldo pendiente.
+      paid_amount = CASE
+        WHEN ${expense.status ?? null} = 'pagado' THEN COALESCE(${expense.amount ?? null}, amount)
+        WHEN ${expense.status ?? null} = 'pendiente' THEN 0
+        ELSE paid_amount
+      END,
       updated_at = NOW()
     WHERE id = ${id} AND household_id = ${householdId}
-    RETURNING id, household_id, added_by, description, amount, category, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date, notes, payment_code, receipt_name, (receipt_data IS NOT NULL) AS has_receipt, invoice_name, (invoice_data IS NOT NULL) AS has_invoice, created_at, updated_at
+    RETURNING id, household_id, added_by, description, amount, category, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date, notes, payment_code, receipt_name, (receipt_data IS NOT NULL) AS has_receipt, invoice_name, (invoice_data IS NOT NULL) AS has_invoice, card_id, TO_CHAR(billing_month, 'YYYY-MM-DD') AS billing_month, paid_amount, minimum_due, created_at, updated_at
   `
   return updatedExpense as Expense
+}
+
+/**
+ * Registra un pago sobre un gasto (típicamente el resumen de una tarjeta).
+ * `amount` es lo que pagás ahora; se acumula sobre lo ya pagado.
+ * El estado es derivado: si el saldo llega a cero queda 'pagado', si no sigue
+ * 'pendiente' (con paid_amount > 0 la UI lo muestra como "parcial").
+ * Con `replace` en true el monto pisa lo acumulado en vez de sumarse — es lo
+ * que usa el campo editable de "pagaste" para corregir un error de carga.
+ */
+export async function registerPayment(
+  id: number,
+  householdId: number,
+  amount: number,
+  replace = false,
+): Promise<Expense | null> {
+  // neon-http no permite anidar fragmentos sql`` dentro de otra query, así que
+  // las dos variantes van escritas por separado.
+  const rows = replace
+    ? await sql`
+        UPDATE expenses
+        SET
+          paid_amount = GREATEST(0, ${amount}),
+          status = CASE WHEN GREATEST(0, ${amount}) >= amount THEN 'pagado' ELSE 'pendiente' END,
+          updated_at = NOW()
+        WHERE id = ${id} AND household_id = ${householdId}
+        RETURNING id, household_id, added_by, description, amount, category, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date, notes, payment_code, receipt_name, (receipt_data IS NOT NULL) AS has_receipt, invoice_name, (invoice_data IS NOT NULL) AS has_invoice, card_id, TO_CHAR(billing_month, 'YYYY-MM-DD') AS billing_month, paid_amount, minimum_due, created_at, updated_at
+      `
+    : await sql`
+        UPDATE expenses
+        SET
+          paid_amount = GREATEST(0, paid_amount + ${amount}),
+          status = CASE WHEN GREATEST(0, paid_amount + ${amount}) >= amount THEN 'pagado' ELSE 'pendiente' END,
+          updated_at = NOW()
+        WHERE id = ${id} AND household_id = ${householdId}
+        RETURNING id, household_id, added_by, description, amount, category, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date, notes, payment_code, receipt_name, (receipt_data IS NOT NULL) AS has_receipt, invoice_name, (invoice_data IS NOT NULL) AS has_invoice, card_id, TO_CHAR(billing_month, 'YYYY-MM-DD') AS billing_month, paid_amount, minimum_due, created_at, updated_at
+      `
+  const row = rows[0]
+  return (row as unknown as Expense) ?? null
+}
+
+export async function getExpenseById(id: number, householdId: number): Promise<Expense | null> {
+  const rows = await sql`
+    SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.card_id, TO_CHAR(e.billing_month, 'YYYY-MM-DD') AS billing_month, e.paid_amount, e.minimum_due,
+    (SELECT COUNT(*)::int FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS item_count,
+    (SELECT COALESCE(SUM(i.amount), 0)::float8 FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS items_total,
+    e.created_at, e.updated_at, u.name as added_by_name
+    FROM expenses e
+    LEFT JOIN app_users u ON u.id = e.added_by
+    WHERE e.id = ${id} AND e.household_id = ${householdId}
+    LIMIT 1
+  `
+  return (rows[0] as unknown as Expense) ?? null
+}
+
+/**
+ * Busca el resumen de una tarjeta para un mes, y lo crea si no existe.
+ * Es el gasto único que se paga; los items cuelgan de (card_id, billing_month).
+ */
+export async function findOrCreateStatement(
+  householdId: number,
+  addedBy: string,
+  card: { id: number; name: string; due_day?: number | null; closing_day?: number | null },
+  billingMonth: string,
+  total?: number,
+): Promise<Expense> {
+  const existing = await sql`
+    SELECT id, household_id, added_by, description, amount, category, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date, notes, payment_code, receipt_name, (receipt_data IS NOT NULL) AS has_receipt, invoice_name, (invoice_data IS NOT NULL) AS has_invoice, card_id, TO_CHAR(billing_month, 'YYYY-MM-DD') AS billing_month, paid_amount, minimum_due, created_at, updated_at
+    FROM expenses
+    WHERE household_id = ${householdId} AND card_id = ${card.id} AND billing_month = ${billingMonth}
+    LIMIT 1
+  `
+  if (existing[0]) {
+    // El total del resumen manda: si el banco lo informa, lo actualizamos.
+    if (typeof total === "number" && total > 0) {
+      const [updated] = await sql`
+        UPDATE expenses SET amount = ${total}, updated_at = NOW()
+        WHERE id = ${(existing[0] as any).id}
+        RETURNING id, household_id, added_by, description, amount, category, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date, notes, payment_code, receipt_name, (receipt_data IS NOT NULL) AS has_receipt, invoice_name, (invoice_data IS NOT NULL) AS has_invoice, card_id, TO_CHAR(billing_month, 'YYYY-MM-DD') AS billing_month, paid_amount, minimum_due, created_at, updated_at
+      `
+      return updated as unknown as Expense
+    }
+    return existing[0] as unknown as Expense
+  }
+
+  // Vencimiento: el primer día de pago POSTERIOR al cierre. Con cierre el 28 y
+  // pago el 5, el resumen de agosto vence el 5 de septiembre — el vencimiento
+  // cae en el mes siguiente cada vez que el día de pago es anterior al cierre.
+  const [y, m] = billingMonth.split("-").map(Number)
+  const dueDay = card.due_day || 10
+  const rollsOver = card.closing_day != null && dueDay <= card.closing_day
+  const dueY = rollsOver && m === 12 ? y + 1 : y
+  const dueM = rollsOver ? (m === 12 ? 1 : m + 1) : m
+  const lastDay = new Date(dueY, dueM, 0).getDate()
+  const day = Math.min(dueDay, lastDay)
+  const dueDate = `${dueY}-${String(dueM).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+
+  const monthLabel = new Date(y, m - 1, 1).toLocaleDateString("es-AR", { month: "long", year: "numeric" })
+
+  return createExpense(householdId, addedBy, {
+    description: `${card.name} — ${monthLabel}`,
+    amount: total ?? 0,
+    category: "tarjeta",
+    status: "pendiente",
+    due_date: dueDate,
+    card_id: card.id,
+    billing_month: billingMonth,
+  })
 }
 
 // No se pueden borrar gastos pagados: primero hay que volverlos a pendiente.
@@ -222,7 +361,10 @@ export async function getExpenseStats(householdId: number, year?: string, month?
 
 export async function getExpiringToday(householdId: number): Promise<Expense[]> {
   const rows = await sql`
-    SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.created_at, e.updated_at, u.name as added_by_name
+    SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.card_id, TO_CHAR(e.billing_month, 'YYYY-MM-DD') AS billing_month, e.paid_amount, e.minimum_due,
+      (SELECT COUNT(*)::int FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS item_count,
+      (SELECT COALESCE(SUM(i.amount), 0)::float8 FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS items_total,
+      e.created_at, e.updated_at, u.name as added_by_name
     FROM expenses e
     LEFT JOIN app_users u ON u.id = e.added_by
     WHERE e.household_id = ${householdId}
@@ -235,7 +377,10 @@ export async function getExpiringToday(householdId: number): Promise<Expense[]> 
 
 export async function getExpiringTomorrow(householdId: number): Promise<Expense[]> {
   const rows = await sql`
-    SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.created_at, e.updated_at, u.name as added_by_name
+    SELECT e.id, e.household_id, e.added_by, e.description, e.amount, e.category, e.status, TO_CHAR(e.due_date, 'YYYY-MM-DD') AS due_date, e.notes, e.payment_code, e.receipt_name, (e.receipt_data IS NOT NULL) AS has_receipt, e.invoice_name, (e.invoice_data IS NOT NULL) AS has_invoice, e.card_id, TO_CHAR(e.billing_month, 'YYYY-MM-DD') AS billing_month, e.paid_amount, e.minimum_due,
+      (SELECT COUNT(*)::int FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS item_count,
+      (SELECT COALESCE(SUM(i.amount), 0)::float8 FROM expense_items i WHERE i.card_id = e.card_id AND i.billing_month = e.billing_month) AS items_total,
+      e.created_at, e.updated_at, u.name as added_by_name
     FROM expenses e
     LEFT JOIN app_users u ON u.id = e.added_by
     WHERE e.household_id = ${householdId}

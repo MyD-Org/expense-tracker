@@ -5,6 +5,7 @@ import { DollarSign, CreditCard, Calendar, AlertTriangle, TrendingUp, TrendingDo
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import type { Expense } from "@/lib/database"
+import { FutureCommitments } from "@/components/future-commitments"
 
 type StatFilter = "paid" | "pending" | "upcoming" | "total"
 
@@ -267,6 +268,9 @@ export function ExpenseDashboard({
           onClick={() => onNavigateCategory?.("variable")}
         />
       </div>
+
+      {/* ── Cuotas ya comprometidas hacia adelante ── */}
+      <FutureCommitments />
 
       {/* ── Gastos recientes ── */}
       <div className="overflow-hidden rounded-3xl border border-slate-700/40 bg-slate-800/40 p-5 sm:p-6 shadow-xl">
