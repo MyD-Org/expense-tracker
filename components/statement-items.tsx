@@ -224,7 +224,7 @@ export function StatementItems({
         data = await res.json()
         if (!res.ok) throw new Error(data.error || "No se pudo leer el PDF")
       } else if (isImageFile(file)) {
-        setParseHint("Leyendo foto en tu dispositivo (gratis, puede tardar un poco)…")
+        setParseHint("Leyendo foto…")
         const { ocrImageFile } = await import("@/lib/statement-ocr")
         const text = await ocrImageFile(file, setOcrProgress)
         setOcrProgress(null)
@@ -568,9 +568,6 @@ export function StatementItems({
               </>
             )}
           </button>
-          <p className="mt-2 text-center text-[11px] text-slate-500">
-            Gratis, sin IA. PDF digital funciona mejor.
-          </p>
           {parseHint && (
             <p className="mt-2 text-center text-[11px] text-amber-300">{parseHint}</p>
           )}

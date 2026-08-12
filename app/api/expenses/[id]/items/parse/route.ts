@@ -38,7 +38,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const mimeType = file.type || "application/octet-stream"
     if (mimeType !== "application/pdf") {
       return NextResponse.json(
-        { error: "Para fotos usá la cámara o galería; el OCR corre en tu dispositivo (gratis)." },
+        { error: "Para fotos usá JPG o PNG desde la galería." },
         { status: 400 },
       )
     }
