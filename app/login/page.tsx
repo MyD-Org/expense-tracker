@@ -1,12 +1,27 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { signIn } from "next-auth/react"
 import { Button } from "@/components/ui/button"
-import { Wallet, ShieldCheck, Users, Bell, Loader2 } from "lucide-react"
+import { Wallet, ShieldCheck, Users, Bell, Loader2, AlertCircle } from "lucide-react"
 
-export default function LoginPage() {
+// NextAuth vuelve a /login?error=... cuando el ingreso falla. Sin este cartel
+// el usuario ve la misma pantalla otra vez y parece que no pasó nada.
+const errorMessages: Record<string, string> = {
+  AccessDenied: "Tu cuenta no está autorizada para entrar a esta app. Pedile al administrador que agregue tu email.",
+  OAuthAccountNotLinked: "Ese email ya está asociado a otra forma de ingreso.",
+  Configuration: "Hay un problema de configuración del servidor. Intentá más tarde.",
+  Verification: "El enlace de acceso venció o ya fue usado.",
+}
+
+function LoginContent() {
   const [loading, setLoading] = useState(false)
+  const searchParams = useSearchParams()
+  const error = searchParams.get("error")
+  const errorMessage = error
+    ? errorMessages[error] || "No pudimos iniciar tu sesión. Volvé a intentarlo."
+    : null
 
   const handleSignIn = () => {
     setLoading(true)
@@ -64,6 +79,16 @@ export default function LoginPage() {
             ))}
           </div>
 
+          {errorMessage && (
+            <div
+              role="alert"
+              className="mb-5 flex items-start gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-left"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+              <p className="text-xs leading-relaxed text-red-200">{errorMessage}</p>
+            </div>
+          )}
+
           {/* Botón Google */}
           <Button
             onClick={handleSignIn}
@@ -97,5 +122,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-950" />}>
+      <LoginContent />
+    </Suspense>
   )
 }

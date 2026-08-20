@@ -40,6 +40,17 @@ pnpm install
 Crea un archivo `.env.local`:
 ```env
 DATABASE_URL=tu_url_de_neon_aqui
+
+# Autenticación con Google
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=una_cadena_larga_al_azar
+GOOGLE_CLIENT_ID=tu_client_id
+GOOGLE_CLIENT_SECRET=tu_client_secret
+
+# Lista blanca de acceso (opcional): solo estos emails pueden iniciar sesión.
+# Separados por coma. Si la variable está vacía o no existe, no se restringe.
+# Si alguien recibe "Tu cuenta no está autorizada", falta su email acá.
+ALLOWED_EMAILS=vos@gmail.com,tu.pareja@gmail.com
 ```
 
 4. **Ejecuta la aplicación**:
