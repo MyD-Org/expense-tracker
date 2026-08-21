@@ -46,6 +46,8 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user, account }) {
       if (!account || account.provider !== "google") return false
 
+      const email = user.email?.toLowerCase()
+
       // Lista blanca: solo los emails autorizados pueden entrar.
       // Se configura con ALLOWED_EMAILS (separados por coma). Si está vacío, no se restringe.
       const allowed = (process.env.ALLOWED_EMAILS || "")
@@ -53,15 +55,37 @@ export const authOptions: NextAuthOptions = {
         .map((e) => e.trim().toLowerCase())
         .filter(Boolean)
       if (allowed.length > 0) {
-        const email = user.email?.toLowerCase()
         if (!email || !allowed.includes(email)) {
-          console.warn("Login bloqueado (email no autorizado):", user.email)
-          return false
+          // El detalle importa para diagnosticar: sin él no se distingue
+          // "falta el email en la lista" de "la variable no llegó al deploy".
+          console.warn(
+            `[auth] Login bloqueado: ${user.email} no figura entre los ${allowed.length} emails de ALLOWED_EMAILS`,
+          )
+          return "/login?error=EmailNoAutorizado"
         }
+      } else {
+        console.warn("[auth] ALLOWED_EMAILS vacío o ausente: no se está restringiendo el acceso")
       }
 
       try {
         await initializeDatabase()
+
+        // app_users.email es UNIQUE, pero el upsert de abajo sólo resuelve el
+        // conflicto por id. Si el email ya está guardado con OTRO id (cuenta
+        // vieja, alta manual, o un id de Google distinto al de la fila), el
+        // INSERT viola la restricción de email y el catch de abajo tumbaba el
+        // login con el mismo cartel que un email no autorizado. Lo separamos.
+        const [clash] = await sql`
+          SELECT id FROM app_users WHERE lower(email) = ${email} AND id <> ${user.id}
+        `
+        if (clash) {
+          console.error(
+            `[auth] ${user.email} ya existe en app_users con id ${clash.id}, pero Google manda ${user.id}. ` +
+              "Hay que unificar esa fila a mano antes de que pueda entrar.",
+          )
+          return "/login?error=CuentaDuplicada"
+        }
+
         await sql`
           INSERT INTO app_users (id, email, name, image)
           VALUES (${user.id}, ${user.email}, ${user.name}, ${user.image})
@@ -72,8 +96,8 @@ export const authOptions: NextAuthOptions = {
         `
         return true
       } catch (e) {
-        console.error("Error en signIn:", e)
-        return false
+        console.error("[auth] Error de base de datos al iniciar sesión:", e)
+        return "/login?error=ErrorServidor"
       }
     },
     async jwt({ token }) {

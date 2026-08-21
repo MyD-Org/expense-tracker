@@ -9,6 +9,11 @@ import { Wallet, ShieldCheck, Users, Bell, Loader2, AlertCircle } from "lucide-r
 // NextAuth vuelve a /login?error=... cuando el ingreso falla. Sin este cartel
 // el usuario ve la misma pantalla otra vez y parece que no pasó nada.
 const errorMessages: Record<string, string> = {
+  EmailNoAutorizado:
+    "Tu email no está en la lista de acceso de la app. Pedile al administrador que lo agregue a ALLOWED_EMAILS.",
+  CuentaDuplicada:
+    "Tu email ya figura registrado con otra cuenta de Google. El administrador tiene que unificar el registro antes de que puedas entrar.",
+  ErrorServidor: "No pudimos conectarnos con la base de datos. Volvé a intentar en un rato.",
   AccessDenied: "Tu cuenta no está autorizada para entrar a esta app. Pedile al administrador que agregue tu email.",
   OAuthAccountNotLinked: "Ese email ya está asociado a otra forma de ingreso.",
   Configuration: "Hay un problema de configuración del servidor. Intentá más tarde.",
