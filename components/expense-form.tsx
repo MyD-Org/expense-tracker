@@ -35,7 +35,9 @@ export function ExpenseForm({ expense, onSubmit, onCancel, onManageCards, cardsR
     description: expense?.description || "",
     amount: expense?.amount?.toString() || "",
     category: expense?.category || ("fijo" as const),
-    status: expense?.status || ("pendiente" as const),
+    // Por defecto "pagado": lo habitual es cargar el gasto una vez ya abonado.
+    // Al editar se respeta el estado que ya tenía.
+    status: expense?.status || ("pagado" as const),
     due_date: expense?.due_date ? expense.due_date.split("T")[0] : new Date().toLocaleDateString("en-CA"),
     notes: expense?.notes || "",
     propagation_months: "12" as string,
