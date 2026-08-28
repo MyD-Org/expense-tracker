@@ -64,7 +64,7 @@ export async function getExpenses(householdId: number, year?: string, month?: st
       WHERE e.household_id = ${householdId}
       AND EXTRACT(YEAR FROM e.due_date) = ${parseInt(year)}
       AND EXTRACT(MONTH FROM e.due_date) = ${parseInt(month)}
-      ORDER BY e.due_date ASC, e.created_at DESC
+      ORDER BY e.due_date DESC, e.created_at DESC
     `
   } else if (year) {
     rows = await sql`
@@ -76,7 +76,7 @@ export async function getExpenses(householdId: number, year?: string, month?: st
       LEFT JOIN app_users u ON u.id = e.added_by
       WHERE e.household_id = ${householdId}
       AND EXTRACT(YEAR FROM e.due_date) = ${parseInt(year)}
-      ORDER BY e.due_date ASC, e.created_at DESC
+      ORDER BY e.due_date DESC, e.created_at DESC
     `
   } else {
     rows = await sql`
@@ -87,7 +87,7 @@ export async function getExpenses(householdId: number, year?: string, month?: st
       FROM expenses e
       LEFT JOIN app_users u ON u.id = e.added_by
       WHERE e.household_id = ${householdId}
-      ORDER BY e.due_date ASC, e.created_at DESC
+      ORDER BY e.due_date DESC, e.created_at DESC
     `
   }
   return rows as unknown as Expense[]
