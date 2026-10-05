@@ -129,6 +129,9 @@ async function runInit() {
     // es la clave que lo une con sus items.
     await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS billing_month DATE`.catch(() => {})
 
+    // Serie de un gasto fijo repetido mes a mes (todos sus meses comparten el id).
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS recurrence_id TEXT`.catch(() => {})
+
     // El item se ancla a (card_id, billing_month), NO a un expense_id: las
     // cuotas futuras existen antes que el resumen del mes en que caen. Ese par
     // es la ÚNICA fuente de verdad del vínculo — no hay FK al resumen que
@@ -203,6 +206,7 @@ async function runInit() {
     await sql`CREATE INDEX IF NOT EXISTS idx_items_card_month ON expense_items(card_id, billing_month)`
     await sql`CREATE INDEX IF NOT EXISTS idx_expenses_card_month ON expenses(card_id, billing_month)`
     await sql`CREATE INDEX IF NOT EXISTS idx_items_group ON expense_items(purchase_group_id)`
+    await sql`CREATE INDEX IF NOT EXISTS idx_expenses_recurrence ON expenses(recurrence_id)`
 
   } catch (error) {
     console.error("[db] Error initializing database:", error)

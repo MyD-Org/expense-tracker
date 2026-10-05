@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -18,11 +17,12 @@ import { NotificationSettings } from "@/components/notification-settings"
 import { NotificationBell } from "@/components/notification-bell"
 import { InstallPWA } from "@/components/install-pwa"
 import { HouseholdSetup } from "@/components/household-setup"
+import { DeleteExpenseDialog } from "@/components/delete-expense-dialog"
 import { LoadingScreen } from "@/components/loading-screen"
 import { ExportExpenses } from "@/components/export-expenses"
 import { CardSettings } from "@/components/card-settings"
 import { ExpenseDetail } from "@/components/expense-detail"
-import type { Expense, ExpenseInput } from "@/lib/database"
+import type { DeleteScope, Expense, ExpenseInput } from "@/lib/database"
 import { useToast } from "@/hooks/use-toast"
 
 // due_date puede venir como "YYYY-MM-DD" o ISO con hora; parseamos como fecha
@@ -275,16 +275,22 @@ export default function ExpenseTracker() {
     }
   }
 
-  const handleDeleteConfirm = async () => {
+  const handleDeleteConfirm = async (scope: DeleteScope) => {
     if (!expenseToDelete) return
     try {
-      const response = await fetch(`/api/expenses/${expenseToDelete.id}`, { method: "DELETE" })
+      const response = await fetch(`/api/expenses/${expenseToDelete.id}?scope=${scope}`, { method: "DELETE" })
       if (response.ok) {
+        const { deleted } = await response.json().catch(() => ({ deleted: 1 }))
         await loadExpenses(selectedYear, selectedMonth)
         setDeleteDialogOpen(false)
         setExpenseToDelete(null)
         if (editingExpense?.id === expenseToDelete.id) handleCloseForm()
-        toast({ title: "Gasto eliminado", description: `${expenseToDelete.description} eliminado.` })
+        toast({
+          title: deleted > 1 ? "Gastos eliminados" : "Gasto eliminado",
+          description: deleted > 1
+            ? `${expenseToDelete.description}: se eliminaron ${deleted} meses.`
+            : `${expenseToDelete.description} eliminado.`,
+        })
       } else {
         const body = await response.json().catch(() => null)
         setDeleteDialogOpen(false)
@@ -678,24 +684,12 @@ export default function ExpenseTracker() {
         </Dialog>
 
         {/* Delete confirmation */}
-        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent className="bg-slate-900 border-slate-700">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-white">¿Eliminar gasto?</AlertDialogTitle>
-              <AlertDialogDescription className="text-slate-300">
-                ¿Estás segura de que querés eliminar "{expenseToDelete?.description}"? Esta acción no se puede deshacer.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => { setDeleteDialogOpen(false); setExpenseToDelete(null) }} className="bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700">
-                Cancelar
-              </AlertDialogCancel>
-              <AlertDialogAction onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700 text-white">
-                Eliminar
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <DeleteExpenseDialog
+          expense={expenseToDelete}
+          open={deleteDialogOpen}
+          onOpenChange={(open) => { setDeleteDialogOpen(open); if (!open) setExpenseToDelete(null) }}
+          onConfirm={handleDeleteConfirm}
+        />
 
         <InstallPWA />
       </div>

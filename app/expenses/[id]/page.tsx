@@ -4,21 +4,11 @@ import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Loader2 } from "lucide-react"
 import { ExpenseDetailView } from "@/components/expense-detail-view"
 import { ExpenseForm } from "@/components/expense-form"
 import { LoadingScreen } from "@/components/loading-screen"
-import type { Expense, ExpenseInput } from "@/lib/database"
+import { DeleteExpenseDialog } from "@/components/delete-expense-dialog"
+import type { DeleteScope, Expense, ExpenseInput } from "@/lib/database"
 import { useToast } from "@/hooks/use-toast"
 
 export default function ExpenseDetailPage({ params }: { params: { id: string } }) {
@@ -78,13 +68,14 @@ export default function ExpenseDetailPage({ params }: { params: { id: string } }
     }
   }
 
-  const handleDelete = async () => {
+  const handleDelete = async (scope: DeleteScope) => {
     if (!expense || deleting) return
     setDeleting(true)
     try {
-      const res = await fetch(`/api/expenses/${expense.id}`, { method: "DELETE" })
+      const res = await fetch(`/api/expenses/${expense.id}?scope=${scope}`, { method: "DELETE" })
       if (!res.ok) throw new Error()
-      toast({ title: "Gasto eliminado" })
+      const { deleted } = await res.json().catch(() => ({ deleted: 1 }))
+      toast({ title: deleted > 1 ? `Se eliminaron ${deleted} meses` : "Gasto eliminado" })
       router.push("/")
     } catch {
       toast({ title: "Error", description: "No se pudo eliminar el gasto.", variant: "destructive" })
@@ -137,28 +128,13 @@ export default function ExpenseDetailPage({ params }: { params: { id: string } }
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent className="border-slate-700 bg-slate-900">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">¿Eliminar este gasto?</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-400">
-              Se borrará &quot;{expense.description}&quot;. Esta acción no se puede deshacer.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700">
-              Cancelar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={deleting}
-              className="bg-red-600 text-white hover:bg-red-500"
-            >
-              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Eliminar"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteExpenseDialog
+        expense={expense}
+        open={deleteOpen}
+        deleting={deleting}
+        onOpenChange={setDeleteOpen}
+        onConfirm={handleDelete}
+      />
     </>
   )
 }
