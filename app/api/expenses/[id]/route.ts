@@ -45,11 +45,12 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   try {
     await initializeDatabase()
     const expenseId = Number.parseInt(params.id)
-    const deleted = await deleteExpense(expenseId, session.user.householdId)
+    const scope = request.nextUrl.searchParams.get("scope") === "following" ? "following" : "this"
+    const deleted = await deleteExpense(expenseId, session.user.householdId, scope)
     if (!deleted) {
       return NextResponse.json({ error: "El gasto no existe" }, { status: 404 })
     }
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, deleted })
   } catch (error) {
     console.error("Error deleting expense:", error)
     return NextResponse.json({ error: "Failed to delete expense" }, { status: 500 })

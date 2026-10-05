@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto"
 import { neon } from "@neondatabase/serverless"
 
 const sql = neon(process.env.DATABASE_URL!)
@@ -23,6 +24,8 @@ export interface Expense {
   /** Solo para category='tarjeta': tarjeta y mes de resumen. */
   card_id?: number | null
   billing_month?: string | null
+  /** Solo para category='fijo' repetido: identifica la serie de meses. */
+  recurrence_id?: string | null
   /** Cuánto se pagó del total. saldo = amount - paid_amount. */
   paid_amount: number
   minimum_due?: number | null
@@ -94,13 +97,17 @@ export async function getExpenses(householdId: number, year?: string, month?: st
 }
 
 export async function createExpense(householdId: number, addedBy: string, expense: ExpenseInput): Promise<Expense> {
+  // Todos los meses de un gasto fijo repetido comparten recurrence_id, para
+  // poder borrar "este y los siguientes" de una vez.
+  const recurrenceId = expense.category === "fijo" && expense.propagation_months ? randomUUID() : null
+
   const [newExpense] = await sql`
-    INSERT INTO expenses (household_id, added_by, description, amount, category, status, due_date, notes, payment_code, receipt_data, receipt_name, invoice_data, invoice_name, card_id, billing_month, minimum_due, paid_amount)
-    VALUES (${householdId}, ${addedBy}, ${expense.description}, ${expense.amount}, ${expense.category}, ${expense.status}, ${expense.due_date}, ${expense.notes || null}, ${expense.payment_code || null}, ${expense.receipt_data || null}, ${expense.receipt_name || null}, ${expense.invoice_data || null}, ${expense.invoice_name || null}, ${expense.card_id ?? null}, ${expense.billing_month ?? null}, ${expense.minimum_due ?? null}, ${expense.status === "pagado" ? expense.amount : 0})
-    RETURNING id, household_id, added_by, description, amount, category, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date, notes, payment_code, receipt_name, (receipt_data IS NOT NULL) AS has_receipt, invoice_name, (invoice_data IS NOT NULL) AS has_invoice, card_id, TO_CHAR(billing_month, 'YYYY-MM-DD') AS billing_month, paid_amount, minimum_due, created_at, updated_at
+    INSERT INTO expenses (household_id, added_by, description, amount, category, status, due_date, notes, payment_code, receipt_data, receipt_name, invoice_data, invoice_name, card_id, billing_month, minimum_due, paid_amount, recurrence_id)
+    VALUES (${householdId}, ${addedBy}, ${expense.description}, ${expense.amount}, ${expense.category}, ${expense.status}, ${expense.due_date}, ${expense.notes || null}, ${expense.payment_code || null}, ${expense.receipt_data || null}, ${expense.receipt_name || null}, ${expense.invoice_data || null}, ${expense.invoice_name || null}, ${expense.card_id ?? null}, ${expense.billing_month ?? null}, ${expense.minimum_due ?? null}, ${expense.status === "pagado" ? expense.amount : 0}, ${recurrenceId})
+    RETURNING id, household_id, added_by, description, amount, category, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date, notes, payment_code, receipt_name, (receipt_data IS NOT NULL) AS has_receipt, invoice_name, (invoice_data IS NOT NULL) AS has_invoice, card_id, TO_CHAR(billing_month, 'YYYY-MM-DD') AS billing_month, paid_amount, minimum_due, recurrence_id, created_at, updated_at
   `
 
-  if (expense.category === "fijo" && expense.propagation_months) {
+  if (recurrenceId && expense.propagation_months) {
     const baseDate = new Date(expense.due_date + "T00:00:00")
 
     let monthsToCreate = 0
@@ -120,8 +127,8 @@ export async function createExpense(householdId: number, addedBy: string, expens
       const nextMonthDate = `${year}-${month}-${day}`
 
       await sql`
-        INSERT INTO expenses (household_id, added_by, description, amount, category, status, due_date, notes, payment_code)
-        VALUES (${householdId}, ${addedBy}, ${expense.description}, ${expense.amount}, ${expense.category}, 'pendiente', ${nextMonthDate}, ${expense.notes || null}, ${expense.payment_code || null})
+        INSERT INTO expenses (household_id, added_by, description, amount, category, status, due_date, notes, payment_code, recurrence_id)
+        VALUES (${householdId}, ${addedBy}, ${expense.description}, ${expense.amount}, ${expense.category}, 'pendiente', ${nextMonthDate}, ${expense.notes || null}, ${expense.payment_code || null}, ${recurrenceId})
       `
     }
   }
@@ -289,15 +296,50 @@ export async function findOrCreateStatement(
   })
 }
 
-// No se pueden borrar gastos pagados: primero hay que volverlos a pendiente.
-// Devuelve false si no borró nada (no existe o está pagado).
-export async function deleteExpense(id: number, householdId: number): Promise<boolean> {
+export type DeleteScope = "this" | "following"
+
+/**
+ * Borra un gasto. Con scope "following" (solo gastos fijos) borra también los
+ * meses siguientes de la misma serie, como "este y los posteriores" en Google
+ * Calendar. Devuelve cuántos gastos borró (0 si no existe).
+ */
+export async function deleteExpense(id: number, householdId: number, scope: DeleteScope = "this"): Promise<number> {
+  if (scope === "following") {
+    const [target] = await sql`
+      SELECT category, description, due_date, recurrence_id
+      FROM expenses
+      WHERE id = ${id} AND household_id = ${householdId}
+    `
+    if (target?.category === "fijo") {
+      const rows = target.recurrence_id
+        ? await sql`
+            DELETE FROM expenses
+            WHERE household_id = ${householdId}
+            AND recurrence_id = ${target.recurrence_id}
+            AND (due_date >= ${target.due_date} OR id = ${id})
+            RETURNING id
+          `
+        : // Gastos fijos creados antes de recurrence_id: la serie se reconoce
+          // por la descripción.
+          await sql`
+            DELETE FROM expenses
+            WHERE household_id = ${householdId}
+            AND category = 'fijo'
+            AND recurrence_id IS NULL
+            AND lower(trim(description)) = lower(trim(${target.description}))
+            AND (due_date >= ${target.due_date} OR id = ${id})
+            RETURNING id
+          `
+      return rows.length
+    }
+  }
+
   const rows = await sql`
     DELETE FROM expenses
     WHERE id = ${id} AND household_id = ${householdId}
     RETURNING id
   `
-  return rows.length > 0
+  return rows.length
 }
 
 export async function getExpenseStats(householdId: number, year?: string, month?: string) {
